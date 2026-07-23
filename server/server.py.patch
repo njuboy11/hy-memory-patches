@@ -1,0 +1,30 @@
+# hy-memory server.py 修改说明
+# 基于 hy-memory v1.2.21 (site-packages/hy_memory/server.py)
+#
+# 修改1: do_POST 方法中加 digest 路由
+# 在 "if path == '/api/v1/delete_all':" 之后加:
+
+            if path == "/api/v1/digest":
+                self._handle_digest(body)
+                return
+
+# 修改2: 加 _handle_digest 方法（加在 _handle_delete_all 方法之后）:
+
+    def _handle_digest(self, body: Dict):
+        """POST /api/v1/digest — 手动触发 System 2 认知加工"""
+        client = _get_client()
+        user_id = body.get("user_id", "")
+        agent_id = body.get("agent_id", "default_agent")
+        if not user_id:
+            _json_response(self, 400, {"error": "user_id is required"})
+            return
+        try:
+            result = client.digest(user_id=user_id, agent_id=agent_id)
+            _json_response(self, 200, result)
+        except RuntimeError as e:
+            _json_response(self, 400, {"error": str(e)})
+
+# 修改3: _needs_thinking_body 白名单加 "minimax"
+# 原第72行 "or \"deepseek\" in _llm_model" 之后加:
+
+            or "minimax" in _llm_model

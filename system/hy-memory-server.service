@@ -1,0 +1,31 @@
+[Unit]
+Description=hy-memory Python server (OpenClaw memory backend)
+Documentation=https://docs.hy-mem.com
+After=network-online.target qdrant.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/root/.hy-memory/start-server.sh
+Restart=on-failure
+RestartSec=5
+StartLimitBurst=5
+StartLimitIntervalSec=60
+
+# 环境：日志
+StandardOutput=append:/var/log/hy-memory-server.log
+StandardError=append:/var/log/hy-memory-server.log
+
+# 资源限制
+MemoryMax=512M
+TasksMax=32
+
+# 安全（最小化）
+NoNewPrivileges=false
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/root/.hy_memory /var/log
+
+[Install]
+WantedBy=default.target

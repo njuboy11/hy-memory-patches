@@ -1,0 +1,33 @@
+{
+  "_comment": "openclaw.json 中 plugins.entries.openclaw-hy-memory 段的完整配置",
+  "enabled": true,
+  "hooks": {
+    "allowConversationAccess": true,
+    "timeoutMs": 90000
+  },
+  "config": {
+    "userId": "wangdapeng",
+    "agentId": "main",
+    "sessionId": "default_session",
+    "mode": "ultra",
+    "autoRecall": true,
+    "autoCapture": true,
+    "topK": 8,
+    "searchThreshold": 0.35,
+    "serverPort": 19527,
+    "autoStartServer": false,
+    "memoryWriteTurnWindow": 5,
+    "llm": {
+      "provider": "openai",
+      "model": "MiniMax-M3",
+      "baseUrl": "https://api.minimaxi.com/v1",
+      "maxTokens": 2048,
+      "temperature": 0.1
+    },
+    "embedder": {
+      "provider": "openai",
+      "model": "Qwen/Qwen3-Embedding-8B",
+      "baseUrl": "https://api.siliconflow.cn/v1"
+    }
+  }
+}
