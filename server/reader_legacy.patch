@@ -1,0 +1,36 @@
+# reader_legacy.py — reranker + OVERFETCH 3x modifications
+# ============================================================
+# Apply to: hy_memory/pipelines/reader_legacy.py
+# Python version: 3.12 / hy-memory v1.2.21
+
+# ── Change 1: Add import (after line 36) ──
+# + from ._retrieval.reranker import RerankerConfig, RerankerService
+
+# ── Change 2: OVERFETCH (line 332) ──
+# - OVERFETCH = 1.5
+# + OVERFETCH = 3
+
+# ── Change 3: Add reranker init in __init__ (after line 131) ──
+# + self._reranker_config = RerankerConfig()
+# + self._reranker: Optional[RerankerService] = (
+# +     RerankerService(self._reranker_config)
+# +     if self._reranker_config.enabled
+# +     else None
+# + )
+
+# ── Change 4: Add reranker injection before truncation (before line 600) ──
+# Insert BEFORE the "按各路 limit 截取" block:
+#
+# _query = request.query
+# if self._reranker is not None:
+#     if final_profile:
+#         final_profile = await self._reranker.rerank(_query, final_profile, top_k=max(profile_limit * 2, 10))
+#     if final_proactive and intention_limit > 0:
+#         final_proactive = await self._reranker.rerank(_query, final_proactive, top_k=intention_limit * 2)
+#     if final_normal:
+#         final_normal = await self._reranker.rerank(_query, final_normal, top_k=limit)
+#
+# And modify the sort logic:
+# -     final_normal.sort(key=lambda x: x.get("score", 0.0), reverse=True)
+# +     if self._reranker is None:
+# +         final_normal.sort(key=lambda x: x.get("score", 0.0), reverse=True)
