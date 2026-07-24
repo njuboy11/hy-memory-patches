@@ -525,8 +525,11 @@ class SimpleHybridReadPipeline(ReadPipeline):
                 f"bm25_recalled={bm25_total} new={bm25_new} duped={bm25_duped} "
                 f"fallback to vec-only (top_k={top_k})"
             )
-            vec_hits.sort(key=lambda x: x.get("score", 0.0), reverse=True)
-            return vec_hits[:top_k]
+            # Apply min_score threshold in fallback path (reranker normally does this)
+            min_score = self._reranker_config.min_score if self._reranker else 0.3
+            filtered = [h for h in vec_hits if h.get("score", 0.0) >= min_score]
+            filtered.sort(key=lambda x: x.get("score", 0.0), reverse=True)
+            return filtered[:top_k]
 
         return merged
 
