@@ -79,7 +79,7 @@ class RerankerService:
                 documents.append(content)
                 valid_indices.append(i)
 
-        if len(documents) < 2:
+        if len(documents) < 1:
             return self._fallback_sort(hits, top_k)
 
         # ── 保存原向量分（覆盖前备份）──

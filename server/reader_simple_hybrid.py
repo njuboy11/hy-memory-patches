@@ -503,9 +503,9 @@ class SimpleHybridReadPipeline(ReadPipeline):
         if not merged:
             return []
 
-        # ── Reranker (with vec-only fallback on failure) ──
+        # ── Reranker (always send, even for 1 candidate — for score) ──
         reranker_ok = False
-        if self._reranker is not None and len(merged) >= 2:
+        if self._reranker is not None and len(merged) >= 1:
             merged = await self._reranker.rerank(query, merged, top_k)
             # reranker sets _rerank_score on success; absent on failure/fallback
             reranker_ok = any("_rerank_score" in h for h in merged)
