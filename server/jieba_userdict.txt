@@ -1,0 +1,92 @@
+# HY Memory 专有名词（jieba 用户词典）
+# 格式: 词 词频 词性
+
+# 模块名
+agent_end 1000 n
+auto_commit 1000 n
+auto_capture 1000 n
+auto_recall 1000 n
+agent_end 1000 n
+hybrid_v2 1000 n
+hybrid_tag 1000 n
+hybrid_simple 1000 n
+simple_hybrid 1000 n
+l0_basic_info 1000 n
+l1_raw 1000 n
+l2_fact 1000 n
+l3_summary 1000 n
+l4_identity 1000 n
+l5_knowledge 1000 n
+l6_schema 1000 n
+l7_intention 1000 n
+system2_writer 1000 n
+system2_agent 1000 n
+system2_tools 1000 n
+
+# 检索相关
+Reranker 1000 n
+rerank 1000 n
+BM25 1000 n
+sparse_embedding 1000 n
+dense_embedding 1000 n
+ColBERT 1000 n
+RRF 1000 n
+min_score 1000 n
+overfetch 1000 n
+top_k 1000 n
+final_limit 1000 n
+candidate 1000 n
+recall 1000 n
+
+# 分词
+jieba 1000 n
+jieba-fast 1000 n
+spaCy 1000 n
+en_core_web_sm 1000 n
+FlagEmbedding 1000 n
+lemmatize 1000 n
+
+# 数据库
+Qdrant 1000 n
+qdrant 1000 n
+Kuzu 1000 n
+kuzu 1000 n
+VDB 1000 n
+graph_store 1000 n
+vector_store 1000 n
+node_id 1000 n
+sparse_vectors 1000 n
+on_disk_payload 1000 n
+HNSW 1000 n
+
+# 模型
+Qwen3-Embedding-8B 1000 n
+Qwen3-Reranker-8B 1000 n
+BAAI/bge-m3 1000 n
+MiniMax-M3 1000 n
+SiliconFlow 1000 n
+embedding 1000 n
+
+# OpenClaw 内部
+openclaw-gateway 1000 n
+hy-memory-server 1000 n
+hy_memory 1000 n
+kv_exec 1000 n
+start-server 1000 n
+systemd 1000 n
+Tailscale 1000 n
+mihomo 1000 n
+journald 1000 n
+Nginx 1000 n
+Docker 1000 n
+
+# 特征字段
+search_text 1000 n
+isolation_key 1000 n
+source_session_id 1000 n
+source_raw_memory_id 1000 n
+pending_tokens 1000 n
+commit_count 1000 n
+memory_at 1000 n
+last_accessed_at 1000 n
+speculate 1000 n
