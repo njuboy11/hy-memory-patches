@@ -169,3 +169,95 @@ if not reranker_ok:
 - 不跑 _reindex_bm25.py: 旧 memory 的 BM25 向量用的是 Qdrant 原始 tokenization，
   与 jieba 用户词典不匹配，召回率降低
 - 不提高 reranker timeout: 长 query 稳定触发 timeout → 全部 fallback 到 vec-only
+
+---
+
+## 后续修复 (commit 5d5340f)
+
+### 改动 7：Fallback 路径补 min_score 阈值
+
+**背景**: 当 Profile 路只有 1 条候选（len(merged) < 2）时，Reranker 被跳过，
+  原 fallback 路径只做 vec_hits.sort() 截断，没有 apply MEMORY_RERANKER_MIN_SCORE (0.6)，
+  导致 0.5 分的 L6 记忆被注入。
+
+**查找方法**: 在 reader_simple_hybrid.py 的 _merge_rerank_evolve() 方法中
+  搜索 `vec_hits.sort`
+
+**改动**: 在 fallback 排序后增加 min_score 过滤:
+
+```python
+min_score = self._reranker_config.min_score if self._reranker else 0.3
+filtered = [h for h in vec_hits if h.get("score", 0.0) >= min_score]
+filtered.sort(key=lambda x: x.get("score", 0.0), reverse=True)
+return filtered[:top_k]
+```
+
+---
+
+## 后续修复 (commit d85f512)
+
+### 改动 8：单候选也送 Reranker（不再跳过）
+
+**背景**: 原代码 `len(merged) >= 2` 的约束导致只有 1 条候选时 Reranker 被跳过。
+  即使只有 1 条，Reranker 的打分仍有意义（判断该记忆与 query 的相关性是否达 0.6）。
+
+**查找方法**: 在两处搜索:
+
+1. reranker.py: 搜索 `len(documents) < 2`
+2. reader_simple_hybrid.py: 搜索 `len(merged) >= 2`
+
+**改动**:
+
+1. reranker.py: 将 `< 2` 改为 `< 1`（SiliconFlow API 支持单文档 rerank）
+2. reader_simple_hybrid.py: 将 `>= 2` 改为 `>= 1`（始终送 Reranker）
+
+**效果**: 单候选也会拿到 Reranker 分数，低于 0.6 的被正确过滤。
+
+---
+
+## 后续修复 (commit 23b8439)
+
+### 改动 9：spaCy 英文短语词典
+
+**背景**: jieba 用户词典只覆盖中文专有名词。英文多词短语（如 `dense embedding`、
+  `keyword search`、`vector store`）会被 spaCy 拆成多个 token，降低 BM25 召回精度。
+
+**方案**: 新增 `spacy_phrasedict.txt`（56 条 HY 内部英文短语），在 lemmatize 前
+  用下划线连接（`dense embedding` → `dense_embedding`），spaCy 识别为单 token。
+
+**新增文件**:
+- `server/spacy_phrasedict.txt`: 短语词典（一行一个短语）
+- `server/lemmatize.py`: 完整修复后的分词器代码
+
+**查找方法**: lemmatize.py 中:
+
+1. 搜索 `_spacy_nlp = None` — 新增 `_load_phrase_dict()` 和 `_preprocess_phrases()`
+2. 搜索 `text = text.strip()` — 在 CJK 检测之前插入 `text = _preprocess_phrases(text)`
+3. 搜索 `lemma.isalnum()` — 改为 `lemma.replace('_', '').isalnum() or '_' in lemma`
+
+**env var**: 在 start-server.sh 中新增 `MEMORY_SPACY_PHRASEDICT` 环境变量
+
+### 改动 10：_reindex_bm25.py payload 清空 bug
+
+**背景**: 重建脚本 upsert 时使用了 `"payload": {}`，导致 Qdrant 中所有现有
+  memory point 的 payload（search_text、content 等）被覆盖为空。
+
+**查找方法**: 搜索 `"payload": {}`
+
+**改动**: 删除 `"payload": {}` 这一行，upsert 时不传 payload 字段，
+  Qdrant 会保留原有 payload。
+
+**注意**: 如果 payload 已经被清空，writer 会在后续对话中自动重建。
+
+---
+
+## 最终状态检查清单
+
+- [ ] lemmatize.py: phrase dict 加载 + 预处理 + isalnum fix
+- [ ] reader_simple_hybrid.py: len(merged) >= 1, vec-only fallback with min_score
+- [ ] reranker.py: len(documents) < 1
+- [ ] _reindex_bm25.py: no payload: {} bug
+- [ ] start-server.sh: HY_MEMORY_READER, JIEBA_USERDICT, SPACY_PHRASEDICT, VEC_MULT, BM25_MULT, RERANKER_TIMEOUT=10000
+- [ ] jieba_userdict.txt: 86 terms
+- [ ] spacy_phrasedict.txt: 56 phrases
+- [ ] pip install jieba spacy + spacy download en_core_web_sm
