@@ -527,7 +527,7 @@ class MemoryHTTPHandler(BaseHTTPRequestHandler):
         _COL = os.environ.get("MEMORY_COLLECTION", "agent_memories_4096")
         BASE = f"http://{_HERE}:{_PORT}"
         SCROLL_URL = f"{BASE}/collections/{_COL}/points/scroll"
-        UPSERT_URL = f"{BASE}/collections/{_COL}/points"
+        UPSERT_URL = f"{BASE}/collections/{_COL}/points/vectors"  # partial — preserves payload & other vectors
 
         def _hash_token(t: str) -> int:
             h = hashlib.md5(t.encode("utf-8")).digest()[:4]

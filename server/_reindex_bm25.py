@@ -54,7 +54,7 @@ COLLECTION = "agent_memories_4096"
 BASE_URL = f"http://{QDRANT_URL}:{QDRANT_PORT}"
 
 # batch upsert endpoint
-UPSERT_URL = f"{BASE_URL}/collections/{COLLECTION}/points"
+UPSERT_URL = f"{BASE_URL}/collections/{COLLECTION}/points/vectors"  # partial — preserves payload & dense vectors
 SCROLL_URL = f"{BASE_URL}/collections/{COLLECTION}/points/scroll"
 WAIT_INDEX_URL = f"{BASE_URL}/collections/{COLLECTION}/points?wait=true"
 
