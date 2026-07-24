@@ -11,6 +11,8 @@ hy-memory v1.2.21 在 OpenClaw VM100 上部署所需的修改，升级后需要�
 | `hy-memory-server.service` | `/root/.config/systemd/user/` | systemd 服务单元 |
 | `openclaw.json` | plugins.entries.openclaw-hy-memory | 插件 hook 超时配置 |
 | `crontab` | `crontab -l` | 每天凌晨自动 digest |
+| `reranker.py` | hy_memory/pipelines/_retrieval/reranker.py | SiliconFlow Qwen3-Reranker-8B |
+| `reader_legacy.py` | hy_memory/pipelines/reader_legacy.py | OVERFETCH 3x + reranker 注入 |
 
 ## 详细修改
 
@@ -20,7 +22,7 @@ hy-memory v1.2.21 在 OpenClaw VM100 上部署所需的修改，升级后需要�
 - 原因：LLMProvider 内部对所有 provider 走 OpenAI backend，Anthropic endpoint 没有 `/chat/completions` 路由
 
 - 新增 `MEMORY_ENABLE_SUMMARY=true`：开启 L3 滚动摘要
-- 新增 `HY_MEMORY_THINKING_MODE=adaptive`：MiniMax M3 开 thinking 改善 JSON 输出
+- 新增 `HY_MEMORY_THINKING_MODE=disabled`：关 M3 thinking 避免 JSON parse 污染
 
 ### 2. server.py 修改
 **位置**: `/root/.hy-memory/.venv/lib/python3.12/site-packages/hy_memory/server.py`
@@ -47,20 +49,54 @@ hy-memory v1.2.21 在 OpenClaw VM100 上部署所需的修改，升级后需要�
 ```
 - 每天凌晨 3 点自动触发 System 2 digest
 
+### 5. Reranker — SiliconFlow Qwen3-Reranker-8B (2026-07-24)
+
+在 legacy reader 召回链路中注入 reranker，提升记忆召回质量。
+
+**涉及文件**:
+- **新建**: `server/reranker.py` → `hy_memory/pipelines/_retrieval/reranker.py`
+- **修改**: `server/reader_legacy.patch` → `hy_memory/pipelines/reader_legacy.py`
+- **修改**: `system/start-server.sh` — 新增 7 个环境变量
+
+**改动摘要**:
+
+| 参数 | 旧值 | 新值 | 说明 |
+|------|------|------|------|
+| OVERFETCH | 1.5 | **3** | 候选池倍数 |
+| 新增 MEMORY_RERANKER_ENABLED | - | **true** | 开启 reranker |
+| 新增 MEMORY_RERANKER_URL | - | **https://api.siliconflow.cn/v1/rerank** | API 端点 |
+| 新增 MEMORY_RERANKER_MODEL | - | **Qwen/Qwen3-Reranker-8B** | 模型 |
+| 新增 MEMORY_RERANKER_TIMEOUT | - | **3000** | 超时(ms) |
+| 新增 MEMORY_RERANKER_MAX_CANDIDATES | - | **50** | 最大候选数 |
+| 新增 MEMORY_RERANKER_MIN_SCORE | - | **0.6** | 最低分阈值 |
+
+**reranker 注入点**: `expand_evolution_chains` 之后, sort+truncate 之前。
+三路 (Profile/Normal/Proactive) 各自独立调用。
+阈值 0.6 过滤：全低于阈值返回 []（不注入），API 异常才 fallback 原向量分。
+
 ## 升级恢复流程
 
 ```bash
 # 1. 升级 hy-memory pip 包后
 # 2. 覆盖启动脚本
-cp server/start-server.sh /root/.hy-memory/start-server.sh
+cp system/start-server.sh /root/.hy-memory/start-server.sh
 
 # 3. 应用 server.py patch
 patch /root/.hy-memory/.venv/lib/python3.12/site-packages/hy_memory/server.py < server/server.py.patch
 
-# 4. 重启服务
+# 4. 复制 reranker 模块（新文件）
+cp server/reranker.py /root/.hy-memory/.venv/lib/python3.12/site-packages/hy_memory/pipelines/_retrieval/reranker.py
+
+# 5. 手动 apply reader_legacy.py 的 4 处改动（见 server/reader_legacy.patch）
+#    - import reranker 模块
+#    - OVERFETCH 1.5→3
+#    - __init__ 新增 reranker 初始化
+#    - sort+truncate 前注入 reranker 调用
+
+# 6. 重启服务
 kill -9 $(pgrep -f hy_memory.server) && systemctl --user start hy-memory-server
 
-# 5. 恢复 crontab
+# 7. 恢复 crontab
 crontab -l | grep -v digest > /tmp/cron.tmp
 echo "0 3 * * * curl ..." >> /tmp/cron.tmp
 crontab /tmp/cron.tmp
