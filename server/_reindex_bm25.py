@@ -65,44 +65,31 @@ def _hash_token(token: str) -> int:
     return int.from_bytes(h, "little") & 0x7FFFFFFF  # positive int32
 
 
-def tokenize(text: str) -> List[str]:
-    """Tokenize text using jieba (Chinese) + spaCy (English).
+# ---- use lemmatize_for_bm25 from library (supports phrase dict + jieba userdict) ----
+# Import after venv path setup (done implicitly by __main__)
+_lemmatize_fn = None
 
-    Same logic as lemmatize.py: CJK chars → jieba, else → spaCy/lower.
-    """
+def _get_lemmatize():
+    global _lemmatize_fn
+    if _lemmatize_fn is None:
+        try:
+            from hy_memory.pipelines._retrieval.lemmatize import lemmatize_for_bm25
+            _lemmatize_fn = lemmatize_for_bm25
+        except ImportError:
+            # fallback if running standalone
+            import sys, os
+            sys.path.insert(0, os.path.join(os.path.dirname(__file__), '.venv', 'lib', 'python3.12', 'site-packages'))
+            from hy_memory.pipelines._retrieval.lemmatize import lemmatize_for_bm25
+            _lemmatize_fn = lemmatize_for_bm25
+    return _lemmatize_fn
+
+def tokenize(text: str) -> List[str]:
+    """Tokenize using lemmatize_for_bm25 (supports jieba userdict + spacy phrase dict)."""
     if not text or not isinstance(text, str):
         return []
-
-    tokens: List[str] = []
-
-    # ── Chinese (CJK) ──
-    import re
-    cjk = re.compile(r'[一-鿿㐀-䶿豈-﫿]')
-    has_cjk = bool(cjk.search(text))
-
-    if has_cjk:
-        seg = jieba.cut(text, HMM=False)
-        for t in seg:
-            t = t.strip()
-            if t and len(t) >= 1 and not re.match(r'^[\s\d\W]+$', t):
-                tokens.append(t)
-
-    # ── English ──
-    en_word = re.compile(r'[a-zA-Z0-9]{2,}')
-    en_words = en_word.findall(text)
-    if en_words:
-        if _nlp is not None:
-            doc = _nlp(" ".join(en_words).lower())
-            for token in doc:
-                if not token.is_punct and not token.is_stop:
-                    t = token.lemma_.strip()
-                    if len(t) >= 2:
-                        tokens.append(t)
-        else:
-            for w in en_words:
-                tokens.append(w.lower())
-
-    return tokens
+    fn = _get_lemmatize()
+    result = fn(text)
+    return [t for t in result.split() if t and len(t) >= 1]
 
 
 def compute_sparse_vector(tokens: List[str]) -> Optional[Dict[str, Any]]:
@@ -197,6 +184,10 @@ def upsert_points(points: List[Dict[str, Any]], dry_run: bool = False) -> int:
         return 0
 
 
+import os
+os.environ.setdefault("MEMORY_JIEBA_USERDICT", "/root/.hy-memory/jieba_userdict.txt")
+os.environ.setdefault("MEMORY_SPACY_PHRASEDICT", "/root/.hy-memory/spacy_phrasedict.txt")
+
 def main():
     parser = argparse.ArgumentParser(description="BM25 sparse vector reindex")
     parser.add_argument("--dry-run", action="store_true", help="Tokenize but don't upsert")
@@ -258,7 +249,7 @@ def main():
         updated.append({
             "id": pt["id"],
             "vector": {"bm25": sparse},
-            "payload": {},
+            # payload untouched (preserve existing data),
         })
 
     print(f"[tokenize] processed {len(updated)}/{len(all_points)} points")

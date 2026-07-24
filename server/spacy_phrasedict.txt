@@ -1,0 +1,68 @@
+# spaCy multi-word phrase dictionary
+# Replace space-separated phrases with underscore-joined tokens
+# before lemmatization, so spaCy treats them as a single token.
+#
+# One phrase per line. Lines starting with # are comments.
+
+dense embedding
+sparse vector
+sparse vectors
+full text
+keyword search
+vector store
+vector search
+graph store
+graph search
+on disk
+node id
+user id
+user ids
+agent id
+agent ids
+session id
+session ids
+isolation key
+basic info
+raw memory
+search text
+source session
+source raw
+memory id
+memory at
+last accessed
+valid from
+valid until
+access count
+min score
+top k
+final limit
+pool size
+over fetch
+score threshold
+status filter
+payload index
+segment count
+points count
+
+# OpenClaw
+openclaw gateway
+hy memory
+systemctl user
+tailscale ip
+lan ip
+ssh key
+ssh port
+api key
+api url
+base url
+
+# models
+embedding dims
+thinking mode
+commit count
+pending tokens
+
+# system2
+system2 writer
+system2 agent
+system2 tools
