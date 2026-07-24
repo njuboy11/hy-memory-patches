@@ -1,30 +1,82 @@
-# hy-memory server.py 修改说明
-# 基于 hy-memory v1.2.21 (site-packages/hy_memory/server.py)
-#
-# 修改1: do_POST 方法中加 digest 路由
-# 在 "if path == '/api/v1/delete_all':" 之后加:
+# server.py — digest HTTP 端点 + M3 thinking 白名单
+# ============================================================
+# 目标文件: hy_memory/server.py（site-packages 中）
+# 适用版本: hy-memory v1.2.21
+# 升级后: 按以下自然语言描述重新打补丁（不要直接用 diff apply）
 
-            if path == "/api/v1/digest":
-                self._handle_digest(body)
-                return
+---
 
-# 修改2: 加 _handle_digest 方法（加在 _handle_delete_all 方法之后）:
+## 改动 1：加 /api/v1/digest 路由
 
-    def _handle_digest(self, body: Dict):
-        """POST /api/v1/digest — 手动触发 System 2 认知加工"""
-        client = _get_client()
-        user_id = body.get("user_id", "")
-        agent_id = body.get("agent_id", "default_agent")
-        if not user_id:
-            _json_response(self, 400, {"error": "user_id is required"})
-            return
-        try:
-            result = client.digest(user_id=user_id, agent_id=agent_id)
-            _json_response(self, 200, result)
-        except RuntimeError as e:
-            _json_response(self, 400, {"error": str(e)})
+**目的**：让 System 2（L6 Schema 归纳）可通过 HTTP POST 手动触发。
 
-# 修改3: _needs_thinking_body 白名单加 "minimax"
-# 原第72行 "or \"deepseek\" in _llm_model" 之后加:
+**查找方法**：在 `do_POST` 方法中搜索 `delete_all` 相关路由处理。找到类似：
+```python
+if path == "/api/v1/delete_all":
+    self._handle_delete_all(body)
+    return
+```
 
-            or "minimax" in _llm_model
+**改动**：在这段代码之后添加：
+```python
+if path == "/api/v1/digest":
+    self._handle_digest(body)
+    return
+```
+
+---
+
+## 改动 2：新增 _handle_digest 方法
+
+**目的**：实现 digest 端点的具体逻辑——调 client.digest() 执行 System 2 认知加工。
+
+**查找方法**：在 server.py 中找到 `_handle_delete_all` 方法的位置。
+
+**改动**：在 `_handle_delete_all` 方法之后新增一个方法：
+```python
+def _handle_digest(self, body: Dict):
+    """POST /api/v1/digest — 手动触发 System 2 认知加工"""
+    client = _get_client()
+    user_id = body.get("user_id", "")
+    agent_id = body.get("agent_id", "default_agent")
+    if not user_id:
+        _json_response(self, 400, {"error": "user_id is required"})
+        return
+    try:
+        result = client.digest(user_id=user_id, agent_id=agent_id)
+        _json_response(self, 200, result)
+    except RuntimeError as e:
+        _json_response(self, 400, {"error": str(e)})
+```
+
+**关键点**：
+- `client.digest()` 是 HyMemoryClient 的方法，触发了 System 2 的聚类→Schema 归纳流水线
+- 需要 `user_id` 参数（必填），`agent_id` 可选（默认 "default_agent"）
+- 如果升级后 HyMemoryClient 的 API 变了，需要适配新接口
+
+---
+
+## 改动 3：M3 thinking 白名单
+
+**目的**：让 MiniMax-M3 可以走 thinking/adaptive 模式（改善 JSON 输出质量）。
+**注意**：2026-07-24 后已改为 `HY_MEMORY_THINKING_MODE=disabled`（关掉 thinking 避免 JSON parse 污染），此改动可保留但实际不生效。
+
+**查找方法**：搜索 `_needs_thinking_body` 方法，在其中找到判断 thinking 模型的条件链：
+
+```python
+if "deepseek" in _llm_model
+    or ...
+```
+
+**改动**：在条件链末尾加一项：
+```python
+    or "minimax" in _llm_model
+```
+
+---
+
+## 如果不打此补丁的后果
+
+- 无法通过 HTTP POST /api/v1/digest 手动触发 System 2
+- crontab 的每日自动 digest 也会失效
+- 但不影响 System 1 的 auto-capture 和 recall

@@ -1,36 +1,135 @@
-# reader_legacy.py — reranker + OVERFETCH 3x modifications
+# reader_legacy.py — Reranker + OVERFETCH 3x 改造说明
 # ============================================================
-# Apply to: hy_memory/pipelines/reader_legacy.py
-# Python version: 3.12 / hy-memory v1.2.21
+# 目标文件: hy_memory/pipelines/reader_legacy.py
+# 适用版本: hy-memory v1.2.21
+# 升级后: 按以下自然语言描述重新打补丁（不要直接用 diff apply）
 
-# ── Change 1: Add import (after line 36) ──
-# + from ._retrieval.reranker import RerankerConfig, RerankerService
+## 背景
 
-# ── Change 2: OVERFETCH (line 332) ──
-# - OVERFETCH = 1.5
-# + OVERFETCH = 3
+legacy reader 的三路召回（Profile/Normal/Proactive）使用 OVERFETCH=1.5
+倍放大候选池，按原始向量分数排序后截断。改造后 OVERFETCH 变为 3 倍，并
+在排序截断前注入外部 reranker（SiliconFlow Qwen3-Reranker-8B），由 reranker
+重新评估 query 与每条候选的相关性，按 reranker 分数排序后截断。
 
-# ── Change 3: Add reranker init in __init__ (after line 131) ──
-# + self._reranker_config = RerankerConfig()
-# + self._reranker: Optional[RerankerService] = (
-# +     RerankerService(self._reranker_config)
-# +     if self._reranker_config.enabled
-# +     else None
-# + )
+## 前提依赖
 
-# ── Change 4: Add reranker injection before truncation (before line 600) ──
-# Insert BEFORE the "按各路 limit 截取" block:
-#
-# _query = request.query
-# if self._reranker is not None:
-#     if final_profile:
-#         final_profile = await self._reranker.rerank(_query, final_profile, top_k=max(profile_limit * 2, 10))
-#     if final_proactive and intention_limit > 0:
-#         final_proactive = await self._reranker.rerank(_query, final_proactive, top_k=intention_limit * 2)
-#     if final_normal:
-#         final_normal = await self._reranker.rerank(_query, final_normal, top_k=limit)
-#
-# And modify the sort logic:
-# -     final_normal.sort(key=lambda x: x.get("score", 0.0), reverse=True)
-# +     if self._reranker is None:
-# +         final_normal.sort(key=lambda x: x.get("score", 0.0), reverse=True)
+1. 必须已部署 `hy_memory/pipelines/_retrieval/reranker.py`（本仓库 server/reranker.py）
+2. 启动脚本必须设置 7 个 MEMORY_RERANKER_* 环境变量（见 system/start-server.sh）
+3. 不设 MEMORY_RERANKER_ENABLED 时完全不改变原有行为（向后兼容）
+
+---
+
+## 改动 1：新增 import
+
+**目的**：引入 reranker 模块。
+
+**查找方法**：在 reader_legacy.py 顶部 import 区域搜索 `from ._retrieval.trace import ReadTraceLogger`
+
+**改动**：在 SearchTraceLogger 的 import 之后、`logger = logging.getLogger(__name__)` 之前加一行：
+
+    from ._retrieval.reranker import RerankerConfig, RerankerService
+
+---
+
+## 改动 2：OVERFETCH 常量
+
+**目的**：候选池从 1.5 倍放大到 3 倍，给 reranker 更多候选做重排。
+
+**查找方法**：搜索 `OVERFETCH = 1.5`（在 `read()` 方法内部、asyncio.gather 之前）
+
+**改动**：
+
+    # 旧
+    OVERFETCH = 1.5
+
+    # 新
+    OVERFETCH = 3
+
+**效果**：Normal 路候池从 ceil(limit×1.5) 变为 ceil(limit×3)。
+Profile 路候池从 ceil(profileLimit×1.5) 变为 ceil(profileLimit×3)。
+
+---
+
+## 改动 3：__init__ 中初始化 reranker
+
+**目的**：创建 RerankerService 实例，根据 env 决定是否启用。
+
+**查找方法**：在 `LegacyReadPipeline.__init__` 方法末尾，搜索 `self._initialized = False`
+
+**改动**：在 `self._initialized = False` 之后、`async def initialize` 之前插入：
+
+    self._reranker_config = RerankerConfig()
+    self._reranker: Optional[RerankerService] = (
+        RerankerService(self._reranker_config)
+        if self._reranker_config.enabled
+        else None
+    )
+
+**注意**：如果升级后 reader_legacy.py 没有 `__init__` 方法（被重构到父类），需要在
+父类中找对应初始化位置，或者直接在 `read()` 方法开头做 lazy init。
+
+---
+
+## 改动 4：注入 reranker 到三路截断之前
+
+**目的**：在 expand_evolution_chains 之后、三路截断之前，对每路候选池调 reranker 重排。
+
+**查找方法**：搜索注释 `# 按各路 limit 截取` 或搜索 `final_profile = _profile_quota_select`。
+这个位置在 expand_evolution_chains 调用之后、三路截断逻辑之前。
+
+**改动**：在 "按各路 limit 截取" 注释块之前插入以下代码：
+
+    # ── Stage: Reranker（可熔断）──
+    _query = request.query
+    if self._reranker is not None:
+        _t_rerank = datetime.now()
+        if final_profile:
+            final_profile = await self._reranker.rerank(
+                _query, final_profile,
+                top_k=max(profile_limit * 2, 10),
+            )
+        if final_proactive and intention_limit > 0:
+            final_proactive = await self._reranker.rerank(
+                _query, final_proactive, top_k=intention_limit * 2,
+            )
+        if final_normal:
+            final_normal = await self._reranker.rerank(
+                _query, final_normal, top_k=limit,
+            )
+        _rerank_ms = (datetime.now() - _t_rerank).total_seconds() * 1000
+        logger.debug(
+            f"[reranker] req={request.request_id} "
+            f"profile={len(final_profile)} normal={len(final_normal)} "
+            f"proactive={len(final_proactive)} elapsed={_rerank_ms:.0f}ms"
+        )
+
+**同时修改**：在 Normal 路的 sort 逻辑处，将原来的无条件 sort 改为条件 sort（只有没有 reranker 时才 sort，因为 reranker 已在内部排序）：
+
+    # 旧
+    final_normal.sort(key=lambda x: x.get("score", 0.0), reverse=True)
+
+    # 新
+    if self._reranker is None:
+        final_normal.sort(key=lambda x: x.get("score", 0.0), reverse=True)
+
+**查找这段代码的方法**：搜索 `# Memory Strength` 注释块，sort 语句在其下方。
+
+---
+
+## 改造后的数据流
+
+```
+asyncio.gather() → expand_evolution_chains() → 三路分流 →
+  Profile:  reranker(15候池) → quota_select → 截断 5 条
+  Normal:   reranker(24候池) → 截断 limit 条
+  Proactive: reranker(N候池) → 截断 intention_limit 条
+→ 拼接 → final_results
+```
+
+---
+
+## 如果不打此补丁的后果
+
+- 候选池保持 1.5 倍，无 reranker 重排
+- 无法享受 reranker 的质量提升
+- 但系统完全正常运行（向后兼容）
