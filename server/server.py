@@ -518,6 +518,18 @@ class MemoryHTTPHandler(BaseHTTPRequestHandler):
         重新对 agent_memories_4096 中所有 point 的 sparse_vectors.bm25 做一次全量索引。
         需要 payload 已填充（search_text/content 非空）。
         """
+
+        # ── 并发锁：防止 cron + 手动同时触发 ──
+        import fcntl
+        _LOCK = "/tmp/bm25_reindex.lock"
+        _lock_handle = open(_LOCK, "w")
+        try:
+            fcntl.flock(_lock_handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except (IOError, OSError):
+            _lock_handle.close()
+            _json_response(self, 429, {"error": "reindex already running"})
+            return
+
         import time, hashlib, urllib.request, urllib.error
         from collections import Counter
         from hy_memory.pipelines._retrieval.lemmatize import lemmatize_for_bm25

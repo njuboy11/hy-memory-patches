@@ -196,6 +196,16 @@ def main():
     parser.add_argument("--sample", type=int, default=5, help="Sample output count")
     args = parser.parse_args()
 
+    # ── 并发锁 ──
+    import fcntl
+    _lock = open("/tmp/bm25_reindex.lock", "w")
+    try:
+        fcntl.flock(_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except (IOError, OSError):
+        print("[abort] reindex already running (lock held)")
+        _lock.close()
+        return
+
     t0 = time.time()
 
     # ── 1. Check collection exists ──

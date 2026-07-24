@@ -17,7 +17,7 @@ StandardOutput=append:/var/log/hy-memory-server.log
 StandardError=append:/var/log/hy-memory-server.log
 
 # 资源限制
-MemoryMax=512M
+MemoryMax=1536M
 TasksMax=32
 
 # 安全（最小化）

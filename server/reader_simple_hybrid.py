@@ -277,17 +277,24 @@ class SimpleHybridReadPipeline(ReadPipeline):
             }
             response.success = True
 
-            # Per-memory source breakdown
-            src_counts = {"vdb": 0, "bm25_only": 0, "profile_forward": 0, "profile_l6": 0}
+            # Per-memory breakdown: layer + score + source
+            src_counts = {}
             for item in final_results:
                 s = item.get("source", "?")
                 src_counts[s] = src_counts.get(s, 0) + 1
+                lyr = item.get("layer", "?")
+                sc = item.get("score", 0.0)
+                # log each recalled memory at DEBUG level
+                logger.debug(
+                    f"[read/simple_hybrid] memory: layer={lyr} score={sc:.4f} "
+                    f"source={s} id={item.get('memory_id','?')[:12]}"
+                )
 
             logger.info(
                 f"[read/simple_hybrid] "
                 f"profile={len(profile_results)} normal={len(normal_results)} "
                 f"proactive={len(proactive_results)} returned={len(final_results)} "
-                f"sources={dict(src_counts)} "
+                f"sources={src_counts} "
                 f"query='{request.query[:80]}'"
             )
 
