@@ -101,3 +101,31 @@ crontab -l | grep -v digest > /tmp/cron.tmp
 echo "0 3 * * * curl ..." >> /tmp/cron.tmp
 crontab /tmp/cron.tmp
 ```
+
+
+### 6. GET /api/v1/graph/list_schemas 端点 (2026-07-25)
+
+**目的**：让 OpenClaw agent 通过 HTTP 查询 Kuzu 图数据库中的所有 L6 Schema 节点，
+避免因为 Kuzu 单进程独占锁而需要停服。
+
+**涉及文件**:
+- **修改**: `server/server.py` → `hy_memory/server.py`
+- **描述**: `server/list_schemas_endpoint.md`
+
+**改动摘要**:
+- `do_GET` 路由注册 `/api/v1/graph/list_schemas`
+- 新增 `_handle_graph_list_schemas` handler 方法（同步走 graph_store._execute）
+
+**使用方式**:
+```
+curl http://127.0.0.1:19527/api/v1/graph/list_schemas
+```
+返回 `{"schemas": [...], "count": 7}`
+
+**恢复流程**:
+```
+# 应用 server.py patch（需先应用 digest.patch，然后叠加 list_schemas 改动）
+# 参见 server/list_schemas_endpoint.md 的自然语言描述
+# 重启服务
+systemctl --user restart hy-memory-server.service
+```

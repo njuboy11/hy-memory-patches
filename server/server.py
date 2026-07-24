@@ -165,6 +165,11 @@ class MemoryHTTPHandler(BaseHTTPRequestHandler):
                 _json_response(self, 200, result)
                 return
 
+            # GET /api/v1/graph/list_schemas
+            if path == "/api/v1/graph/list_schemas":
+                self._handle_graph_list_schemas()
+                return
+
             # GET /api/v1/memories/:id
             m = re.match(r"^/api/v1/memories/([^/]+)$", path)
             if m:
@@ -271,6 +276,46 @@ class MemoryHTTPHandler(BaseHTTPRequestHandler):
     # ================================================================
     # Route handlers
     # ================================================================
+
+    def _handle_graph_list_schemas(self):
+        """GET /api/v1/graph/list_schemas — 列出所有 L6 Schema 节点。
+
+        不经过 client（避免触发异步/loop），直接用 graph_store 的底层 _execute
+        同步查 Kuzu Memory 表中 layer='l6_schema' 的节点。
+        """
+        try:
+            client = _get_client()
+            gs = getattr(client, '_graph_store', None)
+            if gs is None or not getattr(gs, '_available', False):
+                _json_response(self, 503, {
+                    "error": "graph_store not available",
+                    "schemas": [],
+                    "count": 0,
+                })
+                return
+
+            rows = gs._execute(
+                "MATCH (s:Memory) WHERE s.layer='l6_schema' "
+                "RETURN s.node_id, s.content, s.confidence, s.created_at "
+                "ORDER BY s.created_at"
+            )
+
+            schemas = []
+            for row in rows:
+                schemas.append({
+                    "node_id": row[0],
+                    "content": row[1],
+                    "confidence": row[2],
+                    "created_at": str(row[3]) if row[3] is not None else None,
+                })
+
+            _json_response(self, 200, {
+                "schemas": schemas,
+                "count": len(schemas),
+            })
+        except Exception as e:
+            logger.error(f"[server] graph/list_schemas error: {e}", exc_info=True)
+            _json_response(self, 500, {"error": str(e)})
 
     def _handle_health_liveness(self):
         """轻量存活探针：探测内部 event loop（_LoopThread）是否还活着。
