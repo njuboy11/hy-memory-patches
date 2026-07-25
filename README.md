@@ -129,3 +129,19 @@ curl http://127.0.0.1:19527/api/v1/graph/list_schemas
 # 重启服务
 systemctl --user restart hy-memory-server.service
 ```
+
+
+### 7. GET /api/v1/busy 端点 (2026-07-25)
+
+**目的**：让 Kuzu 备份脚本在停服前精确判断 capture 是否正在进行，
+避免在 LLM 提取中途杀进程导致 L2/L3 结果丢失。
+
+**涉及文件**:
+- **修改**: `server/server.py` → `hy_memory/server.py`
+- **描述**: `server/busy_endpoint.md`
+
+**改动摘要**:
+- `import threading` + 全局 `_active_add_count` 计数器 + `_active_add_lock`
+- `do_GET` 路由注册 `/api/v1/busy`
+- `_handle_add` 入口 `+= 1`、出口 `finally -= 1`（线程安全）
+- 新增 `_handle_busy` handler 返回 `{"busy": true/false, "active_add_requests": N}`

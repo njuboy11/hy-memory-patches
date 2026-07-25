@@ -29,6 +29,7 @@ import os
 import re
 import signal
 import sys
+import threading
 import time
 import traceback
 from datetime import datetime
@@ -41,6 +42,10 @@ logger = logging.getLogger("hy_memory.server")
 # Lazy-init global client
 _client = None
 _client_lock = None
+
+# /api/v1/busy — 活跃 add 请求计数（线程安全）
+_active_add_count = 0
+_active_add_lock = threading.Lock()
 
 
 def _get_client():
@@ -165,6 +170,11 @@ class MemoryHTTPHandler(BaseHTTPRequestHandler):
                 _json_response(self, 200, result)
                 return
 
+            # GET /api/v1/busy
+            if path == "/api/v1/busy":
+                self._handle_busy()
+                return
+
             # GET /api/v1/graph/list_schemas
             if path == "/api/v1/graph/list_schemas":
                 self._handle_graph_list_schemas()
@@ -276,6 +286,14 @@ class MemoryHTTPHandler(BaseHTTPRequestHandler):
     # ================================================================
     # Route handlers
     # ================================================================
+
+    def _handle_busy(self):
+        """GET /api/v1/busy — 返回当前是否有 capture 正在处理"""
+        busy = _active_add_count > 0
+        _json_response(self, 200, {
+            "busy": busy,
+            "active_add_requests": _active_add_count,
+        })
 
     def _handle_graph_list_schemas(self):
         """GET /api/v1/graph/list_schemas — 列出所有 L6 Schema 节点。
@@ -434,34 +452,41 @@ class MemoryHTTPHandler(BaseHTTPRequestHandler):
 
     def _handle_add(self, body: Dict):
         """POST /api/v1/add"""
-        data = body.get("data")
-        if data is None:
-            # Support both "data" (str or messages list) and "messages" key
-            messages = body.get("messages")
-            text = body.get("text", "")
-            if messages:
-                data = messages
-            elif text:
-                data = text
-            else:
-                _json_response(self, 400, {"error": "data, text, or messages is required"})
-                return
+        global _active_add_count
+        with _active_add_lock:
+            _active_add_count += 1
+        try:
+            data = body.get("data")
+            if data is None:
+                # Support both "data" (str or messages list) and "messages" key
+                messages = body.get("messages")
+                text = body.get("text", "")
+                if messages:
+                    data = messages
+                elif text:
+                    data = text
+                else:
+                    _json_response(self, 400, {"error": "data, text, or messages is required"})
+                    return
 
-        client = _get_client()
-        kwargs = {}
-        for key in ("user_id", "agent_id", "session_id", "metadata"):
-            if key in body:
-                kwargs[key] = body[key]
+            client = _get_client()
+            kwargs = {}
+            for key in ("user_id", "agent_id", "session_id", "metadata"):
+                if key in body:
+                    kwargs[key] = body[key]
 
-        # memory_at
-        if body.get("memory_at"):
-            try:
-                kwargs["memory_at"] = datetime.fromisoformat(body["memory_at"])
-            except Exception:
-                pass
+            # memory_at
+            if body.get("memory_at"):
+                try:
+                    kwargs["memory_at"] = datetime.fromisoformat(body["memory_at"])
+                except Exception:
+                    pass
 
-        result = client.add(data, **kwargs)
-        _json_response(self, 200, result)
+            result = client.add(data, **kwargs)
+            _json_response(self, 200, result)
+        finally:
+            with _active_add_lock:
+                _active_add_count -= 1
 
     def _handle_add_extracted(self, body: Dict):
         """POST /api/v1/add_extracted — 写入已抽取好的记忆（跳过 extract，直接 reconcile）"""
