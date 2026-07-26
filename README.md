@@ -145,3 +145,28 @@ systemctl --user restart hy-memory-server.service
 - `do_GET` 路由注册 `/api/v1/busy`
 - `_handle_add` 入口 `+= 1`、出口 `finally -= 1`（线程安全）
 - 新增 `_handle_busy` handler 返回 `{"busy": true/false, "active_add_requests": N}`
+
+
+### 8. Reranker 阈值收紧: 0.6 → 0.65 (2026-07-26)
+
+**目的**：将 Simple Hybrid Reader 三路 reranker 最低分阈值从 0.6 提高到 0.65，
+进一步减少噪声记忆注入。
+
+**涉及文件**:
+- **修改**: `system/start-server.sh` — `MEMORY_RERANKER_MIN_SCORE` 从 0.6 改为 0.65
+- **描述**: `patches/reranker_min_score_0.65.md`
+
+**改动摘要**:
+| 参数 | 旧值 | 新值 | 说明 |
+|------|------|------|------|
+| MEMORY_RERANKER_MIN_SCORE | 0.6 | 0.65 | reranker 最低分阈值 |
+
+**生效范围**：3 条 path（Profile / Normal / Proactivity）统一受影响，
+fallback 路径也同步生效。只改 env 变量一行，无需改 Python 源码。
+
+**恢复流程**:
+```bash
+cp system/start-server.sh /root/.hy-memory/start-server.sh
+systemctl --user restart hy-memory-server
+cat /proc/$(pgrep -f hy_memory.server | head -1)/environ | tr '\0' '\n' | grep MEMORY_RERANKER_MIN_SCORE
+```
