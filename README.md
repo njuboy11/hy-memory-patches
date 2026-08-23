@@ -170,3 +170,32 @@ cp system/start-server.sh /root/.hy-memory/start-server.sh
 systemctl --user restart hy-memory-server
 cat /proc/$(pgrep -f hy_memory.server | head -1)/environ | tr '\0' '\n' | grep MEMORY_RERANKER_MIN_SCORE
 ```
+
+### 9. Reranker 阈值再次收紧: 0.65 → 0.7 (2026-08-23)
+
+**目的**：鹏哥观察发现 0.65 下仍有噪声记忆注入，进一步收紧到 0.7。
+
+**涉及文件**:
+- **修改**: `system/start-server.sh` — `MEMORY_RERANKER_MIN_SCORE` 从 0.65 改为 0.7
+- **描述**: `patches/reranker_min_score_0.7.md`
+
+**改动摘要**:
+| 参数 | 旧值 | 新值 | 说明 |
+|------|------|------|------|
+| MEMORY_RERANKER_MIN_SCORE | 0.65 | 0.7 | reranker 最低分阈值 |
+
+**生效范围**：3 条 path（Profile / Normal / Proactivity）统一受影响，
+fallback 路径也同步生效。只改 env 变量一行，无需改 Python 源码。
+
+**部署步骤**:
+```bash
+# 1. 改 start-server.sh
+sed -i 's/MEMORY_RERANKER_MIN_SCORE="0.65"/MEMORY_RERANKER_MIN_SCORE="0.7"/' /root/.hy-memory/start-server.sh
+# 2. kill 旧进程（新进程自动通过 start-server.sh 拉起）
+kill -9 $(pgrep -f hy_memory.server | head -1)
+# 3. 验证
+cat /proc/$(pgrep -f hy_memory.server | head -1)/environ | tr '\0' '\n' | grep MEMORY_RERANKER_MIN_SCORE
+# 期望输出: MEMORY_RERANKER_MIN_SCORE=0.7
+```
+
+**回退方案**: 把 0.7 改回 0.65，重复上述步骤即可。
